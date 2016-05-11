@@ -1,0 +1,55 @@
+--- # Deploiment de docker et build et run  d'applications nodejs
+- hosts: aptserver:appserver
+  user: test
+  become: yes
+  connection: ssh
+  gather_facts: yes
+  vars_prompt:
+    - name: "dossier"
+      prompt: "entrez le chemin complet du dossier de l'application"
+      private: no   
+    - name: "port"
+      prompt: "entrez le port sur le quel se lance votre apllication"
+      private: no
+    - name: "image"
+      prompt: "entrez le nom de l'image docker de votre application"
+      private: no
+  
+  
+  tasks:
+    - name: Installer curl pour centos
+      yum: pkg=curl state=latest update_cache=yes
+      when: "ansible_os_family == 'RedHat'"
+    - name: installation docker sur un serveur centos
+      shell: curl -fssl https://get.docker.com/ | sh > /home/test/logDocker.log
+      when: "ansible_os_family == 'RedHat'"
+  
+    - name: mis à jour pour des serveurs ubuntu
+      raw: apt-get update -y 
+      when: "ansible_os_family == 'Debian'"
+    - name:  installer docker sur serveur unbuntu
+      apt: pkg=docker.io state=latest
+      when: "ansible_os_family == 'Debian'"
+    - name: lancement de  docker
+      service: name=docker state=restarted
+
+    - name: creer le  dossier de l'application chez le host
+      file: name={{ dossier }} state=directory
+
+    - name: Copier contenu de l application chez le host
+      action: copy src={{ dossier }}/ dest={{ dossier }}/ 
+    - name: creation du script  demarrage mongodb et nodejs dans le contenair docker
+      shell: echo "#!/bin/bash" > {{ dossier }}/run.sh
+    - shell: echo "mongod & nodejs server.js" >> {{ dossier }}/run.sh 
+     
+
+    - name: build de l'application et creation de son  image docker
+      shell:
+       cmd: docker build -t {{ image }} . 
+       chdir: "{{ dossier }}/" 
+        
+    - name: run de l'appliaction dans un contenair docker
+      shell:  
+       cmd: docker run -p {{ port }}:{{ port }} -d -t -i {{ image }}
+
+
