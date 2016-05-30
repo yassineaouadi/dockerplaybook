@@ -1,0 +1,103 @@
+--- # Deploiment de docker et build et run  d'applications nodejs
+- hosts: dockerhost
+  user: test
+  become: yes
+  connection: ssh
+  gather_facts: yes
+  vars:
+      ahmed: ahmedkefi-craftacademy/E-commerce_Movies 
+      imageahmed: ahmed/emovies
+      sadok:  elfuche/craft-commerce
+      imagesadok: sadok/esurf
+
+  tasks:
+   
+    - name: Installer curl et git 
+      package: name={{ item }} state=latest       
+      with_items:
+       - curl
+       - git
+    - name: installation de consul 
+      get_url: url=https://releases.hashicorp.com/consul/0.6.4/consul_0.6.4_linux_amd64.zip dest=/usr/local/bin/  
+    - unarchive: src=/usr/local/bin/consul_0.6.4_linux_amd64.zip dest=/usr/local/bin/ copy=no
+     
+    - name: installation docker sur un serveur centos
+      shell: curl -fssl https://get.docker.com/ | sh
+       
+    - name: installation des prerequis pour utiliser les modules docker et consul de  ansible 
+      package: name=python-pip state=latest        
+    - pip: name={{ item }}
+      with_items:
+       - docker-py
+       - requests
+       - python-consul
+    - name: mis à jour des prerequis
+      shell: pip install --upgrade {{ item }}
+      with_items: 
+        - pip
+        - requests
+        - python-consul
+    - shell: chmod 777 /usr/local/bin/consul
+    - name: lancement de  docker
+      service: name=docker state=restarted
+
+    - name: recuperer adresse ip de l'inteface docker  du host
+      shell: echo "$(ifconfig docker0 | grep 'inet' | cut -d':' -f2 | awk '{ print $2}')"
+      register: ipaddress
+    - debug: var=ipaddress 
+      with_items:
+       - "{{ ipaddress.stdout }}"
+
+    - name: lancment d'un agent consul dan le host docker
+      become: no
+      shell: /usr/local/bin/consul agent -bind {{ item }} -client 0.0.0.0   -data-dir /tmp/consul  -server -bootstrap   >> /dev/null  &
+      with_items:
+       - "{{ipaddress.stdout }}"
+
+    - name:  associer la valeur du port de ahmed a une clé dans le serveur consul
+      consul_kv:
+        key: "portahmed"
+        value: "3001"
+      register: verif
+    - debug: var=verif
+    - name:  associer la valeur du port de sadok  a une clé dans le serveur consul
+      consul_kv:
+        key: "portsadok"
+        value: "3002"
+      register: verif2
+    - debug: var=verif2
+
+    - name: creer le  dossier de l'application chez le host
+      file: name=/home/test/fullstackapps/{{ item }} state=directory
+      with_items:
+        - "{{ sadok }}"
+        - "{{ ahmed }}"
+
+
+    - name: cloner les applications depuis github chez le host
+      git: repo=https://github.com/{{ item }}.git dest=/home/test/fullstackapps/{{ item }}/
+      with_items:
+           
+        - "{{sadok}}"
+        - "{{ahmed}}"
+  
+    - name: creation du script  demarrage  le conteneur docker
+      shell: echo -e "#!/bin/bash \n confd -onetime -backend=\"consul\" -node=\"{{ item.ip}}:8500\" \n chmod +x /tmp/myconfig.sh \n /tmp/myconfig.sh" > /home/test/fullstackapps/{{ item.name }}/myStartupScript.sh
+      with_items:
+        -  { ip : '{{ipaddress.stdout}}', name: '"{{ahmed}}"' }
+        -  { ip: '{{ipaddress.stdout}}', name: '"{{sadok}}"' }
+ 
+   
+   
+    - name: build de l application de ahmed  et creation de son  image docker
+      docker_image:  path="/home/test/fullstackapps/{{ ahmed }}/" name={{ imageahmed }} state=present
+    - name: run  de l application de ahmed dans un conteneur
+      docker: image="{{ imageahmed}}"  name=ahmed0 ports="3001:3001" net=host detach=yes state=started
+
+
+
+
+    - name: build de l application de sadok  et creation de son  image docker
+      docker_image: path="/home/test/fullstackapps/{{ sadok }}/" name={{ imagesadok }} state=present
+    - name: run  de l application de sadok dans un conteneur
+      docker:  image="{{ imagesadok}}"  name=sadok0 ports="3002:3002" net=host detach=yes state=started
