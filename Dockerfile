@@ -6,7 +6,6 @@ curl \
 git \
 npm \
 build-essential
-
 RUN curl -sL https://deb.nodesource.com/setup_4.x |sh
 RUN apt-get install -y nodejs
 
